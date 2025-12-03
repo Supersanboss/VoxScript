@@ -1,14 +1,22 @@
 import React from 'react';
 import { Speaker, AVAILABLE_VOICES, VoiceName, VoiceProfile } from '../types';
-import { Users, User, Mic2, Wand2 } from 'lucide-react';
+import { Users, User, Mic2, Wand2, Play, Volume2 } from 'lucide-react';
 
 interface SpeakerManagerProps {
   speakers: Speaker[];
   customProfiles: VoiceProfile[];
   onUpdateSpeaker: (id: string, updates: Partial<Speaker>) => void;
+  onPreviewVoice?: (voice: string, customProfileId?: string) => void;
+  isPreviewing?: boolean;
 }
 
-export const SpeakerManager: React.FC<SpeakerManagerProps> = ({ speakers, customProfiles, onUpdateSpeaker }) => {
+export const SpeakerManager: React.FC<SpeakerManagerProps> = ({ 
+    speakers, 
+    customProfiles, 
+    onUpdateSpeaker,
+    onPreviewVoice,
+    isPreviewing 
+}) => {
   if (speakers.length === 0) {
     return (
       <div className="p-6 bg-slate-800/50 rounded-xl border border-slate-700/50 text-center text-slate-400 flex flex-col items-center gap-3">
@@ -51,7 +59,14 @@ export const SpeakerManager: React.FC<SpeakerManagerProps> = ({ speakers, custom
             </div>
             
             <div className="flex items-center gap-2">
-              <Mic2 size={14} className="text-slate-500" />
+              <button
+                onClick={() => onPreviewVoice?.(speaker.voice, speaker.customProfileId)}
+                disabled={isPreviewing}
+                className="p-1.5 text-slate-400 hover:text-indigo-400 hover:bg-indigo-900/30 rounded-md transition-colors"
+                title="Preview Voice"
+              >
+                {isPreviewing ? <Volume2 size={14} className="animate-pulse" /> : <Play size={14} fill="currentColor" />}
+              </button>
               <select
                 value={speaker.customProfileId ? `custom:${speaker.customProfileId}` : speaker.voice}
                 onChange={(e) => {

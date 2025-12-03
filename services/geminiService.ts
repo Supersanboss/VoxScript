@@ -33,10 +33,7 @@ async function decodeAudioData(
   ctx: AudioContext
 ): Promise<AudioBuffer> {
   // Convert raw PCM to AudioBuffer
-  // Note: Gemini TTS output is raw PCM, not WAV/MP3, so we can't use ctx.decodeAudioData directly on the raw bytes usually
-  // UNLESS the API wraps it in a container. The documentation says "raw PCM data".
-  // We need to interpret the Int16 Little Endian PCM.
-  
+  // Note: Gemini TTS output is raw PCM. We need to interpret the Int16 Little Endian PCM.
   const int16Data = new Int16Array(data.buffer);
   const float32Data = new Float32Array(int16Data.length);
   
@@ -57,8 +54,7 @@ export const generateSpeech = async (
 ): Promise<AudioBuffer> => {
   const ctx = getAudioContext();
   
-  // Construct the prompt to ensure the model understands the script format
-  // We include the user's system instructions or style preferences here
+  // Construct the prompt
   const fullPrompt = `
     Generate a spoken audio performance for the following script.
     Follow these directions: ${config.systemInstruction}
@@ -68,7 +64,6 @@ export const generateSpeech = async (
   `;
 
   // Build Speaker Config
-  // If we have mapped speakers, use multiSpeakerVoiceConfig
   const speakerConfigs = speakers.map(s => ({
     speaker: s.name,
     voiceConfig: {
@@ -76,7 +71,9 @@ export const generateSpeech = async (
     }
   }));
 
-  const speechConfig = speakerConfigs.length > 0 
+  // Use simple voiceConfig for single speaker scenarios (like previews) to reduce complexity/errors
+  // Use multiSpeakerVoiceConfig only when necessary for dialogue
+  const speechConfig = speakerConfigs.length > 1 
     ? {
         multiSpeakerVoiceConfig: {
           speakerVoiceConfigs: speakerConfigs
@@ -84,7 +81,7 @@ export const generateSpeech = async (
       }
     : {
         voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: 'Puck' }
+          prebuiltVoiceConfig: { voiceName: speakers[0]?.voice || 'Puck' }
         }
       };
 
@@ -94,7 +91,7 @@ export const generateSpeech = async (
       contents: [{ parts: [{ text: fullPrompt }] }],
       config: {
         responseModalities: [Modality.AUDIO],
-        temperature: config.temperature, // Use temperature for variation
+        temperature: config.temperature,
         speechConfig: speechConfig,
       },
     });
@@ -102,7 +99,8 @@ export const generateSpeech = async (
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
 
     if (!base64Audio) {
-      throw new Error("No audio data received from Gemini API.");
+      console.error("Gemini API Response missing audio data:", response);
+      throw new Error("No audio data received from Gemini API. The model may have refused the request or generated only text.");
     }
 
     const rawBytes = decodeBase64(base64Audio);

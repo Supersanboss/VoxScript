@@ -5,8 +5,9 @@ import { Controls } from './components/Controls';
 import { AudioPlayer } from './components/AudioPlayer';
 import { VoiceLab } from './components/VoiceLab';
 import { LiveSession } from './components/LiveSession';
-import { Speaker, GenerationConfig, AVAILABLE_VOICES, AppView, VoiceProfile } from './types';
+import { Speaker, GenerationConfig, AVAILABLE_VOICES, AppView, VoiceProfile, VoiceName } from './types';
 import { generateSpeech } from './services/geminiService';
+import { playAudioBuffer } from './services/audioUtils';
 import { Sparkles, Command, FileText, Mic, Wand2 } from 'lucide-react';
 
 // Default Script
@@ -26,17 +27,30 @@ const App: React.FC = () => {
   const [view, setView] = useState<AppView>('script');
   const [script, setScript] = useState(DEFAULT_SCRIPT);
   const [speakers, setSpeakers] = useState<Speaker[]>([]);
-  const [customProfiles, setCustomProfiles] = useState<VoiceProfile[]>([]);
+  
+  // Initialize with saved profiles if available
+  const [customProfiles, setCustomProfiles] = useState<VoiceProfile[]>(() => {
+    try {
+      const saved = localStorage.getItem('voxscript_profiles');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
   const [config, setConfig] = useState<GenerationConfig>(DEFAULT_CONFIG);
   const [isGenerating, setIsGenerating] = useState(false);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Persist profiles whenever they change
+  useEffect(() => {
+    localStorage.setItem('voxscript_profiles', JSON.stringify(customProfiles));
+  }, [customProfiles]);
+
   // Helper to detect speakers
   const detectSpeakers = (text: string) => {
       const detected = new Set<string>();
-      // Regex for "Name:" pattern, slightly improved to avoid capturing times or generic words if possible,
-      // but keeping it flexible for names.
       const regex = /^([a-zA-Z0-9_\- ]{2,20}):/gm;
       let match;
       while ((match = regex.exec(text)) !== null) {
@@ -62,7 +76,6 @@ const App: React.FC = () => {
         if (prevMap.has(name)) {
           newSpeakers.push(prevMap.get(name)!);
         } else {
-          // Assign a new voice round-robin style
           newSpeakers.push({
             id: `s-${Date.now()}-${Math.random()}`,
             name: name,
@@ -83,12 +96,75 @@ const App: React.FC = () => {
     setConfig(prev => ({ ...prev, ...updates }));
   };
 
+  // Preview Logic
+  const handlePreviewVoice = async (voice: VoiceName | string, customProfileId?: string, overrideDescription?: string) => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+        let systemInstruction = "Speak naturally and clearly.";
+        let voiceName: VoiceName = 'Puck'; // Default
+
+        if (customProfileId || overrideDescription) {
+            // It's a custom voice
+            let profile: VoiceProfile | undefined;
+            
+            if (customProfileId) {
+                profile = customProfiles.find(p => p.id === customProfileId);
+            } else if (overrideDescription) {
+                // Previewing unsaved changes
+                profile = {
+                    id: 'temp',
+                    name: 'Preview',
+                    baseVoice: voice as VoiceName,
+                    description: overrideDescription,
+                    gender: 'Neutral'
+                };
+            }
+
+            if (profile) {
+                voiceName = profile.baseVoice;
+                // Removed explicit instruction to "Say a short phrase" to avoid conflict with the script below
+                systemInstruction = `Roleplay as a character with this voice description: ${profile.description}. Gender: ${profile.gender}.`;
+            }
+        } else {
+            // Standard voice
+            voiceName = voice as VoiceName;
+            systemInstruction = "Say a friendly greeting to demonstrate your voice.";
+        }
+
+        const previewConfig: GenerationConfig = {
+            temperature: 1,
+            speed: 1,
+            systemInstruction
+        };
+
+        const previewSpeaker: Speaker = {
+            id: 'preview',
+            name: 'Preview',
+            voice: voiceName
+        };
+
+        const buffer = await generateSpeech(
+            "Hello. This is a preview of my voice.", 
+            [previewSpeaker], 
+            previewConfig
+        );
+        
+        playAudioBuffer(buffer);
+
+    } catch (e: any) {
+        console.error(e);
+        setError("Failed to generate preview. Please check your voice settings.");
+    } finally {
+        setIsGenerating(false);
+    }
+  };
+
   const handleGenerate = async () => {
     setIsGenerating(true);
     setError(null);
     setAudioBuffer(null);
 
-    // Inject custom voice instructions into the system prompt
     let enhancedConfig = { ...config };
     const customSpeakerInstructions = speakers
         .filter(s => s.customProfileId)
@@ -115,7 +191,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 pb-32 font-sans">
-      {/* Header */}
       <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-40 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -130,7 +205,6 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          {/* Nav Tabs */}
           <div className="flex bg-slate-800/50 p-1 rounded-lg border border-slate-700/50">
              <button 
                 onClick={() => setView('script')}
@@ -154,7 +228,6 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
         {error && (
@@ -178,7 +251,9 @@ const App: React.FC = () => {
                     <SpeakerManager 
                         speakers={speakers} 
                         customProfiles={customProfiles}
-                        onUpdateSpeaker={handleUpdateSpeaker} 
+                        onUpdateSpeaker={handleUpdateSpeaker}
+                        onPreviewVoice={handlePreviewVoice}
+                        isPreviewing={isGenerating}
                     />
                     <Controls 
                         config={config} 
@@ -194,6 +269,8 @@ const App: React.FC = () => {
                     profiles={customProfiles}
                     onAddProfile={(p) => setCustomProfiles([...customProfiles, p])}
                     onDeleteProfile={(id) => setCustomProfiles(prev => prev.filter(p => p.id !== id))}
+                    onPreviewVoice={handlePreviewVoice}
+                    isPreviewing={isGenerating}
                 />
             </div>
         )}
@@ -206,7 +283,6 @@ const App: React.FC = () => {
 
       </main>
 
-      {/* Footer Player - Only visible in Script View */}
       {view === 'script' && (
         <AudioPlayer 
             audioBuffer={audioBuffer} 

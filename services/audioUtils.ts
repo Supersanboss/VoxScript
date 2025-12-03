@@ -81,3 +81,12 @@ function floatTo16BitPCM(output: DataView, offset: number, input: Float32Array) 
     output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
   }
 }
+
+// Simple playback utility for previews
+export const playAudioBuffer = (buffer: AudioBuffer) => {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start(0);
+};
