@@ -1,0 +1,7 @@
+{
+  "name": "VoxScript AI",
+  "description": "A professional-grade text-to-speech script editor that uses Gemini 2.5 Flash TTS to generate realistic, multi-speaker audio with customizable expressions and emotions.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
